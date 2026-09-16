@@ -1,0 +1,48 @@
+{
+  "name": "mock-gql-server",
+  "version": "0.1.0",
+  "description": "A fast, session-scoped GraphQL mock server for integration testing",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "mock-gql-server": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "vite-node bench/run.ts",
+    "bench:check": "vite-node bench/run.ts -- --check",
+    "bench:update": "vite-node bench/run.ts -- --update"
+  },
+  "dependencies": {
+    "fastify": "^5.12.5",
+    "graphql": "^17.0.2",
+    "lru-cache": "^11.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tinybench": "^6.2.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vite-node": "^6.0.0",
+    "vitest": "^5.0.1"
+  }
+}
