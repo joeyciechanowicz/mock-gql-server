@@ -7,17 +7,17 @@ import { buildCases } from './suites.js';
 const BASELINE = resolve(import.meta.dirname, 'baseline.json');
 
 /**
- * How much slower than the baseline a case may get before the build fails.
+ * How much slower than the baseline a case may get before it is reported.
  *
- * Deliberately generous. Measured back-to-back on one machine these cases
- * swing up to ~16%, and a CI runner adds more on top (the async cases read
- * 12-49% slower there while the pure-CPU ones land within 2%). A tighter gate
- * fires on noise, and a gate that cries wolf gets ignored.
+ * Deliberately generous: measured back-to-back on one machine these cases
+ * swing up to ~16%, so anything tighter reports noise.
  *
- * It is set to catch the regressions that actually matter, which are large:
- * losing the document cache is +1000%, not +15%. The invariants below are the
- * real protection, because ratios measured in the same run are portable across
- * machines in a way wall-clock milliseconds are not.
+ * A baseline records wall-clock time on the machine that produced it, so this
+ * comparison is only meaningful when re-run on that same machine. It therefore
+ * warns by default and only fails the build under --strict, which is what a
+ * before/after comparison on one machine should use. The invariants below are
+ * what CI gates on, because a ratio between two cases in the same run is
+ * portable and a millisecond count is not.
  */
 const THRESHOLD = 0.4;
 
@@ -49,6 +49,8 @@ function padStart(s: string, n: number): string { return s.length >= n ? s : ' '
 async function main(): Promise<void> {
   const check = process.argv.includes('--check');
   const update = process.argv.includes('--update');
+  /** Also fail on absolute regressions. Only valid on the machine that recorded the baseline. */
+  const strict = process.argv.includes('--strict');
 
   const { cases, teardown } = await buildCases();
 
@@ -143,14 +145,24 @@ async function main(): Promise<void> {
   }
 
   if (regressions.length > 0) {
-    console.error(`\n${regressions.length} performance regression(s) beyond ${THRESHOLD * 100}%:`);
+    const label = strict ? 'performance regression(s)' : 'case(s) slower than the baseline';
+    console.error(`\n${regressions.length} ${label} beyond ${THRESHOLD * 100}%:`);
     console.error(regressions.join('\n'));
-    console.error('\nIf the trade-off is intended, re-record with `npm run bench:update`.');
+    if (strict) {
+      console.error('\nIf the trade-off is intended, re-record with `npm run bench:update`.');
+    } else {
+      console.error(
+        '\nReported, not failed: the baseline was recorded on another machine, so these\n' +
+          'numbers are not comparable. Re-run with --strict on the machine that recorded it.',
+      );
+    }
   }
 
-  if (broken.length > 0 || regressions.length > 0) process.exit(1);
+  if (broken.length > 0 || (strict && regressions.length > 0)) process.exit(1);
 
-  console.log(`\nInvariants hold; no regressions beyond ${THRESHOLD * 100}%.`);
+  console.log(
+    `\nInvariants hold.${regressions.length > 0 ? ' Absolute timings differ; see above.' : ''}`,
+  );
 }
 
 await main();

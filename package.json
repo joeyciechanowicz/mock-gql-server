@@ -30,7 +30,8 @@
     "test:watch": "vitest",
     "bench": "vite-node bench/run.ts",
     "bench:check": "vite-node bench/run.ts -- --check",
-    "bench:update": "vite-node bench/run.ts -- --update"
+    "bench:update": "vite-node bench/run.ts -- --update",
+    "bench:strict": "vite-node bench/run.ts -- --check --strict"
   },
   "dependencies": {
     "fastify": "^5.12.5",

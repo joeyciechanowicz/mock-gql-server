@@ -255,37 +255,45 @@ on the full request. Matching is near-flat in the number of registered mocks (10
 over none).
 
 ```bash
-npm run bench          # run the suites
-npm run bench:check    # fail on a broken invariant or a >40% regression
+npm run bench          # run the suites and print the table
+npm run bench:check    # gate on the invariants (this is what CI runs)
+npm run bench:strict   # also fail on absolute regressions vs the baseline
 npm run bench:update   # re-record the baseline
 ```
 
-`bench:check` runs in CI, so a regression blocks the merge and an intentional trade-off shows up as
-a reviewable diff to `bench/baseline.json`.
+### Measuring a change
+
+On one machine, before and after:
+
+```bash
+npm run bench:update      # on the base revision
+# ...make your change...
+npm run bench:strict      # fails if anything is >40% slower
+```
 
 ### Why the gate is shaped the way it is
 
-Wall-clock benchmarks are not portable. Measured back-to-back on one machine these cases swing up
-to ~16%, and a CI runner adds more on top — the async cases read 12-49% slower there, while the
-pure-CPU ones land within 2%. A 10% gate on absolute milliseconds fires constantly on noise, and a
-gate that cries wolf gets ignored.
+Wall-clock benchmarks are not portable, and this bit us: the first CI run failed with eight
+"regressions" of 12-49% **on the same commit** that passed locally. The pure-CPU cases matched
+across machines within 2%; everything through Fastify's async path was slower on the runner. That
+is hardware, not code.
 
-So the check has two parts:
+Back-to-back runs on a *single* machine still swing up to ~16%. So a baseline of absolute
+milliseconds only means something when re-run on the machine that recorded it:
 
-1. **Invariants** — ratios between two cases *measured in the same run*, so hardware speed cancels
-   out. The document cache must stay ≥100x faster than an uncached parse+validate, and matching
-   against 100 registered mocks must stay within 2.5x of matching against none. These are the
-   checks worth trusting.
-2. **Absolute regression vs the baseline**, at a deliberately generous 40%. This is there to catch
-   the regressions that actually matter, which are large — losing the document cache is +1000%, not
-   +15%.
-
-Both are verified to fire: deliberately breaking the document cache reports
-`cache (cached) is only 1.2x faster than (uncached), expected >= 100x` and exits non-zero.
+1. **Invariants — what CI gates on.** Ratios between two cases measured in the same run, so
+   hardware speed cancels out. The document cache must stay ≥100x faster than an uncached
+   parse+validate, and matching against 100 registered mocks must stay within 2.5x of matching
+   against none. Verified to fire: deliberately breaking the document cache reports
+   `cache (cached) is only 1.2x faster than (uncached), expected >= 100x` and exits non-zero.
+2. **Absolute comparison — reported, not enforced,** unless you pass `--strict`. The threshold is a
+   deliberately generous 40%, because the regressions that matter here are large: losing the
+   document cache is +1000%, not +15%.
 
 Benchmarks also run a global warmup pass over every case before measuring any of them. tinybench
 warms each task individually, but the Fastify and graphql-js code paths are shared, so without it
-the first task measured absorbs the JIT cost for all of them and reads 20-50% slow.
+the first task measured absorbs the JIT cost for all of them and reads 20-50% slow — two cases
+running an identical workload disagreed by 20% until this was added.
 
 ## Development
 
