@@ -1,0 +1,21 @@
+type Order {
+  id: ID!
+  total: Float!
+  sku: String!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  orders: [Order!]!
+}
+
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+}
+
+type Mutation {
+  renameUser(id: ID!, name: String!): User!
+}
