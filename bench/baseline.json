@@ -1,62 +1,62 @@
 {
   "query: generated, no mocks": {
-    "opsPerSec": 7359,
-    "msPerOp": 0.15358,
-    "rme": 5.66
+    "opsPerSec": 8210,
+    "msPerOp": 0.13433,
+    "rme": 4.21
   },
   "query: generated, default resolvers": {
-    "opsPerSec": 8663,
-    "msPerOp": 0.13228,
-    "rme": 5.96
+    "opsPerSec": 8407,
+    "msPerOp": 0.13492,
+    "rme": 5.38
   },
   "query: verbose debug trace": {
-    "opsPerSec": 7281,
-    "msPerOp": 0.14984,
-    "rme": 4.43
+    "opsPerSec": 7823,
+    "msPerOp": 0.14214,
+    "rme": 4.72
   },
   "query: whole-operation mock + gap fill": {
-    "opsPerSec": 7915,
-    "msPerOp": 0.13957,
-    "rme": 4.7
+    "opsPerSec": 8258,
+    "msPerOp": 0.13652,
+    "rme": 4.77
   },
   "query: three field-path mocks": {
-    "opsPerSec": 8405,
-    "msPerOp": 0.13467,
-    "rme": 5.64
+    "opsPerSec": 8050,
+    "msPerOp": 0.14275,
+    "rme": 5.17
   },
   "query: nested lists and objects": {
-    "opsPerSec": 5837,
-    "msPerOp": 0.19008,
-    "rme": 4.78
+    "opsPerSec": 5666,
+    "msPerOp": 0.1932,
+    "rme": 4.13
   },
   "matching: 0 registered mocks": {
-    "opsPerSec": 8630,
-    "msPerOp": 0.12819,
-    "rme": 4.25
+    "opsPerSec": 8510,
+    "msPerOp": 0.13074,
+    "rme": 4.53
   },
   "matching: 10 registered mocks": {
-    "opsPerSec": 8512,
-    "msPerOp": 0.12989,
-    "rme": 4.41
+    "opsPerSec": 8209,
+    "msPerOp": 0.13535,
+    "rme": 4.35
   },
   "matching: 100 registered mocks": {
-    "opsPerSec": 7500,
-    "msPerOp": 0.14724,
-    "rme": 4.12
+    "opsPerSec": 7046,
+    "msPerOp": 0.16205,
+    "rme": 4.96
   },
   "api: register one mock": {
-    "opsPerSec": 21200,
-    "msPerOp": 0.05776,
-    "rme": 7.54
+    "opsPerSec": 22191,
+    "msPerOp": 0.05406,
+    "rme": 5.63
   },
   "cache: parse+validate (cached)": {
-    "opsPerSec": 13402462,
+    "opsPerSec": 12949507,
     "msPerOp": 0.00009,
-    "rme": 0.42
+    "rme": 0.41
   },
   "cache: parse+validate (uncached)": {
-    "opsPerSec": 3520,
-    "msPerOp": 0.35837,
-    "rme": 23.4
+    "opsPerSec": 3536,
+    "msPerOp": 0.35267,
+    "rme": 22.44
   }
 }
