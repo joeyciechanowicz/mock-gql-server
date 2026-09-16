@@ -1,0 +1,62 @@
+{
+  "query: generated, no mocks": {
+    "opsPerSec": 7359,
+    "msPerOp": 0.15358,
+    "rme": 5.66
+  },
+  "query: generated, default resolvers": {
+    "opsPerSec": 8663,
+    "msPerOp": 0.13228,
+    "rme": 5.96
+  },
+  "query: verbose debug trace": {
+    "opsPerSec": 7281,
+    "msPerOp": 0.14984,
+    "rme": 4.43
+  },
+  "query: whole-operation mock + gap fill": {
+    "opsPerSec": 7915,
+    "msPerOp": 0.13957,
+    "rme": 4.7
+  },
+  "query: three field-path mocks": {
+    "opsPerSec": 8405,
+    "msPerOp": 0.13467,
+    "rme": 5.64
+  },
+  "query: nested lists and objects": {
+    "opsPerSec": 5837,
+    "msPerOp": 0.19008,
+    "rme": 4.78
+  },
+  "matching: 0 registered mocks": {
+    "opsPerSec": 8630,
+    "msPerOp": 0.12819,
+    "rme": 4.25
+  },
+  "matching: 10 registered mocks": {
+    "opsPerSec": 8512,
+    "msPerOp": 0.12989,
+    "rme": 4.41
+  },
+  "matching: 100 registered mocks": {
+    "opsPerSec": 7500,
+    "msPerOp": 0.14724,
+    "rme": 4.12
+  },
+  "api: register one mock": {
+    "opsPerSec": 21200,
+    "msPerOp": 0.05776,
+    "rme": 7.54
+  },
+  "cache: parse+validate (cached)": {
+    "opsPerSec": 13402462,
+    "msPerOp": 0.00009,
+    "rme": 0.42
+  },
+  "cache: parse+validate (uncached)": {
+    "opsPerSec": 3520,
+    "msPerOp": 0.35837,
+    "rme": 23.4
+  }
+}
