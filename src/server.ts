@@ -8,6 +8,7 @@ import type { SessionStore } from './session/store.js';
 import { SessionManager, type ServerContext } from './server-context.js';
 import { registerQueryRoutes } from './routes/query.js';
 import { registerApiRoutes } from './routes/api.js';
+import { createMockClient, type MockClient } from './client.js';
 
 export interface MockServerOptions {
   /** SDL text or an already-built schema. */
@@ -32,6 +33,11 @@ export interface MockServer {
   readonly schema: GraphQLSchema;
   listen(opts?: { port?: number; host?: string }): Promise<string>;
   inject: FastifyInstance['inject'];
+  /**
+   * A client bound to this server in-process, with no port and no network.
+   * The session id defaults to a fresh one, so a client per test is isolated.
+   */
+  client(sessionId?: string): MockClient;
   close(): Promise<void>;
 }
 
@@ -66,6 +72,20 @@ export async function createMockServer(options: MockServerOptions): Promise<Mock
       return app.listen({ port: opts.port ?? 0, host: opts.host ?? '127.0.0.1' });
     },
     inject: app.inject.bind(app),
+    client(sessionId) {
+      return createMockClient({
+        ...(sessionId === undefined ? {} : { sessionId }),
+        fetch: async (url, init = {}) => {
+          const res = await app.inject({
+            method: (init.method ?? 'GET') as 'GET',
+            url,
+            ...(init.headers ? { headers: init.headers } : {}),
+            ...(init.body === undefined ? {} : { payload: init.body }),
+          });
+          return { status: res.statusCode, text: async () => res.body };
+        },
+      });
+    },
     async close() {
       await app.close();
       await ctx.sessions.close();

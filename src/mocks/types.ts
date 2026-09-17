@@ -53,7 +53,7 @@ export type MockSource = 'mock' | 'pathMock' | 'defaultResolver' | 'generated';
 
 /** Why a candidate mock did not apply. */
 export interface Rejection {
-  on: 'operation' | 'operationName' | 'field' | 'query' | 'variables' | 'path' | 'times';
+  on: 'operation' | 'operationName' | 'field' | 'query' | 'variables' | 'times';
   reason: string;
   expected?: unknown;
   actual?: unknown;

@@ -25,13 +25,15 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vite-node bench/run.ts",
     "bench:check": "vite-node bench/run.ts -- --check",
     "bench:update": "vite-node bench/run.ts -- --update",
-    "bench:strict": "vite-node bench/run.ts -- --check --strict"
+    "bench:strict": "vite-node bench/run.ts -- --check --strict",
+    "example:standalone": "npm run build && node example/standalone.mjs"
   },
   "dependencies": {
     "fastify": "^5.12.5",

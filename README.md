@@ -11,10 +11,35 @@ Sessions keep concurrent test runs from seeing each other's mocks.
 - **Deterministic by default.** Identical requests in a session return identical data, so your
   suite doesn't go flaky.
 
+---
+
+**Contents**
+
+- [Quick start](#quick-start)
+- [Using it in your tests](#using-it-in-your-tests) — start here
+- [Mocking recipes](#mocking-recipes)
+- [When a mock doesn't match](#when-a-mock-doesnt-match)
+- [Default resolvers](#default-resolvers)
+- [Sessions and TTL](#sessions-and-ttl)
+- [Determinism](#determinism)
+- [API reference](#api-reference)
+- [CLI](#cli)
+- [Performance](#performance)
+- [Development](#development)
+
+---
+
 ## Quick start
 
+> Not published to npm yet. Install from the repository:
+>
+> ```bash
+> npm install --save-dev github:joeyciechanowicz/mock-gql-server
+> ```
+
+Run it against your schema:
+
 ```bash
-npm install --save-dev mock-gql-server
 npx mock-gql-server --schema ./schema.graphql --port 4000
 ```
 
@@ -32,24 +57,87 @@ curl localhost:4000/query/my-test -H 'content-type: application/json' \
   -d '{"query":"{ user(id:\"1\"){ id name email } }"}'
 ```
 
-Use it as a library when you want it in-process:
+There are two runnable examples in [`example/`](./example) covering both setups below.
+
+## Using it in your tests
+
+### In-process, with no ports
+
+The usual setup for a test suite. The server runs in your test process and `server.client()` talks
+to it directly — no port to allocate, no network, parallel-safe.
 
 ```ts
-import { createMockServer } from 'mock-gql-server';
+import { beforeAll, afterAll, it, expect } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { createMockServer, type MockServer } from 'mock-gql-server';
 
-const server = await createMockServer({
-  schema: await readFile('./schema.graphql', 'utf8'),
-  defaultResolvers: { User: { email: 'someone@example.com' } },
-  ttlMs: 15 * 60_000,
+let server: MockServer;
+
+beforeAll(async () => {
+  server = await createMockServer({ schema: await readFile('./schema.graphql', 'utf8') });
 });
+afterAll(async () => { await server.close(); });
 
-const url = await server.listen({ port: 4000 });
-// ... or drive it without binding a port:
-const res = await server.inject({ method: 'POST', url: '/query/s1', payload: { query: '{ ping }' } });
-await server.close();
+it('shows the user name', async () => {
+  // A client per test. Each gets its own session, so tests never collide.
+  const mocks = server.client();
+
+  await mocks.mock({
+    match: { field: 'user', variables: { id: '1' } },
+    data: { user: { name: 'Ada Lovelace' } },
+  });
+
+  const res = await mocks.query<{ user: { name: string; email: string } }>({
+    query: 'query GetUser($id: ID!) { user(id: $id) { name email } }',
+    variables: { id: '1' },
+  });
+
+  expect(res.data!.user.name).toBe('Ada Lovelace');
+  expect(res.data!.user.email).toBeTruthy(); // not staged, still filled in
+});
 ```
 
-## Mocks
+One server for the whole suite is fine — the per-test isolation comes from the session, not the
+server.
+
+### Against a standalone server
+
+When the app under test makes its own HTTP calls, run the server separately and point the app at
+the session's URL.
+
+```ts
+import { createMockClient } from 'mock-gql-server';
+
+const mocks = createMockClient({ baseUrl: 'http://localhost:4000' });
+
+// Configure the app under test with this. Each client has its own session id.
+process.env.GRAPHQL_URL = mocks.queryUrl;  // http://localhost:4000/query/s-3f2a...
+
+await mocks.mock({ match: { field: 'user' }, data: { user: { name: 'Ada' } } });
+```
+
+### The session-per-test pattern
+
+A session is just a string in the URL, and it's created the first time you use it — there is
+nothing to set up.
+
+- **One client per test.** `server.client()` and `createMockClient()` both generate a fresh session
+  id, so isolation is the default rather than something you have to remember.
+- **Cleanup is optional.** Sessions expire on their own ([TTL](#sessions-and-ttl)). Call
+  `mocks.clear()` to drop the mocks but keep the session, or `mocks.destroy()` to drop the session
+  entirely, if you'd rather not wait.
+- **Reuse a session deliberately** by naming it: `server.client('checkout-flow')` or
+  `createMockClient({ baseUrl, sessionId: 'checkout-flow' })`. Useful when a browser test and the
+  test process both need to reach the same mocks.
+
+```ts
+const mocks = server.client();
+await mocks.mock({ /* ... */ });
+await mocks.clear();     // drop mocks, keep the session
+await mocks.destroy();   // drop the session entirely
+```
+
+## Mocking recipes
 
 A mock is a match spec plus the data to return. Every part of `match` is optional; an empty match
 catches every operation.
@@ -71,30 +159,49 @@ catches every operation.
 }
 ```
 
-### Partial mocks
+### Stage only what you care about
 
-Stage only what your assertion cares about. Anything you leave out is filled from a default
-resolver, or generated:
+Anything you leave out is filled from a default resolver, or generated:
 
-```jsonc
-{ "match": { "field": "user" }, "data": { "user": { "name": "Ada" } } }
-// -> { "user": { "id": "id-4821", "name": "Ada", "email": "coral-77", "status": "ACTIVE" } }
+```ts
+await mocks.mock({ match: { field: 'user' }, data: { user: { name: 'Ada' } } });
+// -> { user: { id: "id-4821", name: "Ada", email: "coral-77", status: "ACTIVE" } }
 ```
 
 An explicit `null` is honoured as a real null — that's how you distinguish "null this out" from
 "I don't care about this field".
 
-### Field-path mocks
+### Override one field with a path mock
 
 `match.path` overrides one location in the response and leaves everything else alone. Omit a list
 index to hit *every* element; include one to hit just that element.
 
-```jsonc
-{ "match": { "path": "user.orders.total" },   "data": 9.99 }  // every order costs 9.99
-{ "match": { "path": "user.orders.0.total" }, "data": 1.11 }  // ...except the first
+```ts
+await mocks.mock({ match: { path: 'user.orders.total' },   data: 9.99 }); // every order
+await mocks.mock({ match: { path: 'user.orders.0.total' }, data: 1.11 }); // ...except the first
 ```
 
 Several path mocks can apply at once, and they layer on top of a whole-operation mock.
+
+### Mock an error
+
+```ts
+await mocks.mock({ match: { field: 'user' }, errors: [{ message: 'Not authorised' }] });
+```
+
+### Return different data on successive calls
+
+`times` retires a mock after it has matched enough times. Newest wins, so register the *later*
+response first:
+
+```ts
+await mocks.mock({ match: { field: 'user' }, times: 1, data: { user: { name: 'Second' } } });
+await mocks.mock({ match: { field: 'user' }, times: 1, data: { user: { name: 'First' } } });
+// first call -> First, second call -> Second, third call -> generated
+```
+
+An exhausted mock stays visible and is reported as `exhausted`, so the trace can tell you a mock
+matched in shape but had run out — rather than going quiet.
 
 ### Which mock wins
 
@@ -114,18 +221,69 @@ produce a response nobody staged. Field-path mocks are layered on separately.
 
 Registering the same mock twice overrides the first, because newest wins on a tie.
 
-### Returning different data on successive calls
+## When a mock doesn't match
 
-`times` retires a mock after it has matched enough times. Newest wins, so register the *later*
-response first:
+Add `?debug=1` (or `{ debug: true }` on `client.query`) and the response tells you what it weighed
+and why each candidate lost.
 
-```jsonc
-{ "match": { "field": "user" }, "times": 1, "data": { "user": { "name": "second" } } }
-{ "match": { "field": "user" }, "times": 1, "data": { "user": { "name": "first"  } } }
+```ts
+const res = await mocks.query({ query: PROFILE, variables: { id: '2' } }, { debug: true });
+
+for (const candidate of res.extensions!.mockServer.evaluated!) {
+  if (!candidate.matched) console.log(candidate.mockId, candidate.rejected);
+}
+// m_1_vu87ox { on: 'variables', reason: 'variable "id" mismatch', expected: '1', actual: '2' }
 ```
 
-An exhausted mock stays visible and is reported as `exhausted`, so the trace can tell you a mock
-matched in shape but had run out — rather than going quiet.
+Match `rejected.on` to the cause:
+
+| `rejected.on` | What it means | Usual fix |
+|---|---|---|
+| `variables` | A variable you matched on differs, or the request never sent it | Check `expected` vs `actual`; remember matching is a *subset* — you only name the ones you care about |
+| `operationName` | The operation's name isn't the one you named | Match on `field` instead if the name varies |
+| `field` | The query doesn't select that root field | `actual` lists the root fields it *did* select |
+| `operation` | You matched `query` but it was a `mutation`, or vice versa | |
+| `query` | The document text differs | Whitespace is normalised, but everything else must match exactly — usually better to match on `field` + `variables` |
+| `times` | The mock matched in shape but had been used up | Register more, or drop `times` |
+
+Other things worth checking:
+
+- **A more specific mock won.** `resolvedBy.mockId` names the winner; compare `score` across
+  candidates in `evaluated`.
+- **The value came from somewhere else.** `counts` shows how many fields came from each source, and
+  in verbose mode `fields[]` gives the source of every single field:
+
+```jsonc
+"fields": [
+  { "path": "user.name",  "source": "mock",            "mockId": "m_1" },
+  { "path": "user.email", "source": "defaultResolver", "type": "User" },
+  { "path": "user.id",    "source": "generated" }
+]
+```
+
+- **The session expired.** `GET /api/:sessionId` shows `expiresAt` and `mockCount`.
+- **The descriptor was rejected.** `client.mock()` throws a `MockClientError` naming the offending
+  field, so a typo fails at the call site rather than silently never matching.
+
+### The summary, always present
+
+Every response carries this much without asking:
+
+```jsonc
+"extensions": {
+  "mockServer": {
+    "sessionId": "my-test",
+    "operation": { "kind": "query", "name": "GetUser" },
+    "resolvedBy": { "mockId": "m_1_z011m2", "source": "mock" },
+    "counts": { "mock": 2, "pathMock": 0, "defaultResolver": 1, "generated": 1 },
+    "candidates": { "considered": 3, "matched": 1, "rejected": 2 }
+  }
+}
+```
+
+Verbose mode adds `evaluated[]` and `fields[]`. It's opt-in because building it allocates per
+field; the summary is only counters. Turn it on per request with `?debug=1` or an `x-mock-debug: 1`
+header, or server-wide with `debug: 'verbose'`.
 
 ## Default resolvers
 
@@ -153,58 +311,16 @@ MockServerStartupError: 2 default resolver problem(s) found; refusing to start
 A resolver may be partial — supplying `{ email }` for `User` and letting the rest be generated is
 the normal case. Validation asks "is what you supplied correct?", never "did you supply everything?".
 
-## Debugging: the `extensions` payload
+A value may also be a function. It is called **once per request, per type** — not once per object
+— so every `User` in a single response shares the value it returned:
 
-Every response explains itself. The summary is always present:
-
-```jsonc
-"extensions": {
-  "mockServer": {
-    "sessionId": "my-test",
-    "operation": { "kind": "query", "name": "GetUser" },
-    "resolvedBy": { "mockId": "m_1_z011m2", "source": "mock" },
-    "counts": { "mock": 2, "pathMock": 0, "defaultResolver": 1, "generated": 1 },
-    "candidates": { "considered": 3, "matched": 1, "rejected": 2 }
-  }
-}
+```ts
+defaultResolvers: { User: () => ({ name: `user-${Date.now()}` }) }
+// A query returning three users gives all three the SAME name.
 ```
 
-Add `?debug=1` (or an `x-mock-debug: 1` header) for the full trace — every candidate with the
-reason it lost, and the source of every resolved field:
-
-```jsonc
-"evaluated": [
-  { "mockId": "m_1", "matched": true,  "score": 126, "kind": "operation" },
-  { "mockId": "m_2", "matched": false, "score": 126, "kind": "operation",
-    "rejected": { "on": "variables", "reason": "variable \"id\" mismatch",
-                  "expected": "1", "actual": "2" } },
-  { "mockId": "m_3", "matched": false, "kind": "operation",
-    "rejected": { "on": "times", "reason": "mock is exhausted" } }
-],
-"fields": [
-  { "path": "user.name",  "source": "mock",            "mockId": "m_1" },
-  { "path": "user.email", "source": "defaultResolver", "type": "User" },
-  { "path": "user.id",    "source": "generated" }
-]
-```
-
-Verbose mode is opt-in because building it allocates per field; the summary is only counters.
-
-## API
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST`/`GET` | `/query/:sessionId` | Execute an operation |
-| `GET` | `/api/:sessionId` | Session metadata and expiry |
-| `DELETE` | `/api/:sessionId` | Destroy the session |
-| `GET` | `/api/:sessionId/mocks` | List mocks |
-| `POST` | `/api/:sessionId/mocks` | Register a mock → `201` |
-| `GET` | `/api/:sessionId/mocks/:id` | Get one mock |
-| `DELETE` | `/api/:sessionId/mocks/:id` | Delete one mock → `204` |
-| `DELETE` | `/api/:sessionId/mocks` | Clear all mocks → `204` |
-
-Sessions are created implicitly on first use. A descriptor naming a field or type that isn't in the
-schema is rejected with `400` at registration, rather than silently never matching later.
+If you need each object to differ, leave the field to generation (which varies it by field path) or
+stage a mock with explicit per-element data.
 
 ## Sessions and TTL
 
@@ -224,12 +340,87 @@ interface SessionStore {
 }
 ```
 
+Pass your own as `store`. No Redis implementation ships today.
+
 ## Determinism
 
 Generated data is seeded from `(sessionId, query, variables, field path)`. So the same request in
 the same session always returns the same data, while different sessions and different variables
 diverge. Pass `randomness: 'random'` (or `--randomness random`) if you'd rather have genuinely
 random data.
+
+## API reference
+
+### `createMockServer(options)`
+
+```ts
+interface MockServerOptions {
+  schema: string | GraphQLSchema;        // SDL text or a built schema
+  defaultResolvers?: Record<string, unknown>;  // by type name; validated at startup
+  store?: SessionStore;                  // defaults to in-memory
+  ttlMs?: number;                        // default 15 min, refreshed on read/write
+  randomness?: 'seeded' | 'random';      // default 'seeded'
+  debug?: 'summary' | 'verbose';         // default 'summary'
+  documentCacheSize?: number;            // default 500
+  logger?: boolean;
+}
+
+interface MockServer {
+  listen(opts?: { port?: number; host?: string }): Promise<string>;  // returns the URL
+  client(sessionId?: string): MockClient;   // in-process client, no port needed
+  inject: FastifyInstance['inject'];
+  close(): Promise<void>;
+  readonly fastify: FastifyInstance;
+  readonly schema: GraphQLSchema;
+}
+```
+
+### `createMockClient(options)`
+
+```ts
+interface MockClientOptions {
+  baseUrl?: string;      // e.g. http://localhost:4000
+  sessionId?: string;    // defaults to a fresh unique id
+  fetch?: FetchLike;     // injectable, for in-process use
+}
+
+interface MockClient {
+  readonly sessionId: string;
+  readonly queryUrl: string;              // point the app under test at this
+
+  mock(input: MockInput): Promise<Mock>;  // throws MockClientError if rejected
+  mocks(): Promise<Mock[]>;
+  get(id: string): Promise<Mock | undefined>;
+  remove(id: string): Promise<void>;
+  clear(): Promise<void>;                 // drop mocks, keep the session
+  destroy(): Promise<void>;               // drop the session
+  session(): Promise<SessionInfo>;
+  query<T>(request, options?: { debug?: boolean }): Promise<GraphQLResponse<T>>;
+}
+```
+
+### HTTP routes
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST`/`GET` | `/query/:sessionId` | Execute an operation |
+| `GET` | `/api/:sessionId` | Session metadata and expiry |
+| `DELETE` | `/api/:sessionId` | Destroy the session |
+| `GET` | `/api/:sessionId/mocks` | List mocks |
+| `POST` | `/api/:sessionId/mocks` | Register a mock → `201` |
+| `GET` | `/api/:sessionId/mocks/:id` | Get one mock |
+| `DELETE` | `/api/:sessionId/mocks/:id` | Delete one mock → `204` |
+| `DELETE` | `/api/:sessionId/mocks` | Clear all mocks → `204` |
+
+Sessions are created implicitly on first use. A descriptor naming a field or type that isn't in the
+schema is rejected with `400` at registration, rather than silently never matching later.
+
+### Exported types
+
+`MockServerOptions` · `MockServer` · `MockClient` · `MockClientOptions` · `MockInput` · `MatchSpec` ·
+`Mock` · `MockSource` · `Candidate` · `Rejection` · `MockServerExtensions` · `FieldTrace` ·
+`SessionStore` · `Session` · `SessionInfo` · `GraphQLResponse` · `DefaultResolvers`
+Plus the errors `MockServerStartupError` and `MockClientError`, and `MemorySessionStore`.
 
 ## CLI
 
@@ -299,13 +490,15 @@ running an identical workload disagreed by 20% until this was added.
 
 ```bash
 npm install
-npm test
+npm test                    # includes the runnable examples
 npm run typecheck
 npm run build
+npm run example:standalone
 ```
 
 The test suite is written as a specification: it drives only the HTTP surface and the public API, so
-the implementation could be thrown away and rebuilt against it.
+the implementation could be thrown away and rebuilt against it. The examples in [`example/`](./example)
+are executed by `npm test`, so documented usage can't silently rot.
 
 ## License
 
